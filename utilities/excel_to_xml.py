@@ -2,14 +2,32 @@ import pandas as pd
 import xml.etree.ElementTree as ET
 import argparse
 import os
+import re
+
+def normalize_field_name(name):
+    # Remove [ and ], replace spaces with underscores, and remove trailing .1, .2, etc.
+    name = re.sub(r'[\[\]]', '', name)
+    name = name.replace(' ', '_')
+    name = re.sub(r'\.\d+$', '', name)
+    return name
 
 def df_to_xml(df, root_tag, row_tag):
+    # Normalize column names, but keep a mapping to original columns for data access
+    normalized_columns = [normalize_field_name(col) for col in df.columns]
+    
     root = ET.Element(root_tag)
     for _, row in df.iterrows():
         row_elem = ET.SubElement(root, row_tag)
-        for field in df.columns:
-            field_elem = ET.SubElement(row_elem, field)
-            field_elem.text = str(row[field]) if pd.notna(row[field]) else ''
+        # For each row, group values by normalized field name
+        field_map = {}
+        for orig_col, norm_col in zip(df.columns, normalized_columns):
+            field_map.setdefault(norm_col, []).append(row[orig_col])
+        # Now, for each normalized field name, add one tag per value
+        for field, values in field_map.items():
+            for value in values:
+                field_elem = ET.SubElement(row_elem, field)
+                if pd.notna(value) and str(value).strip() != '':
+                    field_elem.text = str(value)
     return root
 
 def save_xml_to_file(root, output_file_path):
@@ -25,8 +43,9 @@ def excel_to_xml(input_file_path, output_file_path, sheet_name=None):
     print(f"Reading sheet: {sheet_name}")
     df = pd.read_excel(input_file_path, sheet_name=sheet_name)
 
-    root_tag = os.path.splitext(os.path.basename(input_file_path))[0]  # Use file name (without extension) as root tag
-    row_tag = 'row'  # Use 'row' as the row tag
+    # Always use "root" as root tag
+    root_tag = "root"
+    row_tag = 'row'
 
     print("Converting DataFrame to XML...")
     root = df_to_xml(df, root_tag, row_tag)
